@@ -11,18 +11,28 @@ console.log(`Relay server starting on port ${PORT}`);
 wss.on('connection', (ws) => {
     console.log('New connection');
 
-    ws.on('message', (data) => {
-        // Текстовые сообщения — команды и идентификация
-        if (typeof data === 'string' || data instanceof Buffer && isText(data)) {
+    // Пинг каждые 30 секунд чтобы соединение не обрывалось
+    const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.ping();
+        }
+    }, 30000);
+
+    ws.on('pong', () => {
+        // Соединение живое
+    });
+
+    ws.on('message', (data, isBinary) => {
+        if (!isBinary) {
             const text = data.toString();
 
-            // Клиент представляется кто он
             if (text === 'I_AM_PHONE') {
                 phoneClient = ws;
                 console.log('Phone connected');
                 ws.send('PHONE_REGISTERED');
-                if (pcClient) {
+                if (pcClient && pcClient.readyState === WebSocket.OPEN) {
                     pcClient.send('PHONE_ONLINE');
+                    ws.send('PC_ONLINE');
                 }
                 return;
             }
@@ -31,35 +41,39 @@ wss.on('connection', (ws) => {
                 pcClient = ws;
                 console.log('PC connected');
                 ws.send('PC_REGISTERED');
-                if (phoneClient) {
+                if (phoneClient && phoneClient.readyState === WebSocket.OPEN) {
                     ws.send('PHONE_ONLINE');
+                    phoneClient.send('PC_ONLINE');
                 }
                 return;
             }
 
-            // Команды от ПК → на телефон (tap, swipe, resolution)
+            // Команды от ПК → телефон
             if (ws === pcClient && phoneClient && phoneClient.readyState === WebSocket.OPEN) {
                 phoneClient.send(text);
             }
 
-            // Текст от телефона → на ПК (resolution)
+            // Текст от телефона → ПК (resolution, location)
             if (ws === phoneClient && pcClient && pcClient.readyState === WebSocket.OPEN) {
                 pcClient.send(text);
             }
 
         } else {
-            // Бинарные данные (кадры экрана) от телефона → на ПК
+            // Бинарные данные (кадры экрана/камеры) от телефона → ПК
             if (ws === phoneClient && pcClient && pcClient.readyState === WebSocket.OPEN) {
-                pcClient.send(data);
+                pcClient.send(data, { binary: true });
             }
         }
     });
 
     ws.on('close', () => {
+        clearInterval(pingInterval);
         if (ws === phoneClient) {
             console.log('Phone disconnected');
             phoneClient = null;
-            if (pcClient) pcClient.send('PHONE_OFFLINE');
+            if (pcClient && pcClient.readyState === WebSocket.OPEN) {
+                pcClient.send('PHONE_OFFLINE');
+            }
         }
         if (ws === pcClient) {
             console.log('PC disconnected');
@@ -68,15 +82,9 @@ wss.on('connection', (ws) => {
     });
 
     ws.on('error', (err) => {
+        clearInterval(pingInterval);
         console.error('WS error:', err.message);
     });
 });
-
-function isText(buffer) {
-    for (let i = 0; i < Math.min(buffer.length, 100); i++) {
-        if (buffer[i] > 127) return false;
-    }
-    return true;
-}
 
 console.log(`Relay server running on port ${PORT}`);
