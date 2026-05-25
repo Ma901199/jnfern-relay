@@ -1,0 +1,12 @@
+{
+  "name": "jnfern-relay",
+  "version": "1.0.0",
+  "description": "Relay server for JnfernBeta Remote Control",
+  "main": "relay.js",
+  "scripts": {
+    "start": "node relay.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
